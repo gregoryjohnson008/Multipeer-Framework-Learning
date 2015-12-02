@@ -16,7 +16,7 @@ protocol MPCManagerDelegate {
     
     func invitationWasReceived(fromPeer: String)
     
-    func connectionWithPeer(peerID: MCPeerID)
+    func connectedWithPeer(peerID: MCPeerID)
 }
 
 class MPCManager: NSObject, MCSessionDelegate, MCNearbyServiceBrowserDelegate, MCNearbyServiceAdvertiserDelegate
@@ -44,6 +44,46 @@ class MPCManager: NSObject, MCSessionDelegate, MCNearbyServiceBrowserDelegate, M
         
         advertiser = MCNearbyServiceAdvertiser(peer: peer, discoveryInfo: nil, serviceType: "appcoda-mpc")
         advertiser.delegate = self
+    }
+    
+    func sendData(dictionaryWithData dictionary: Dictionary<String, String>, toPeer targetPeer: MCPeerID) -> Bool {
+        let dataToSend = NSKeyedArchiver.archivedDataWithRootObject(dictionary)
+        let peersArray = NSArray(object: targetPeer)
+        var error: NSError?
+        
+        try
+            session.sendData(dataToSend, toPeers: peersArray as! [MCPeerID], withMode: MCSessionSendDataMode.Reliable)
+        
+        if !session.sendData(dataToSend, toPeers: peersArray as! [MCPeerID], withMode: MCSessionSendDataMode.Reliable) {
+            print(error?.localizedDescription)
+            return false
+        }
+        
+        return true
+    }
+    
+    func advertiser(advertiser: MCNearbyServiceAdvertiser!, didReceiveInvitationFromPeer peerID: MCPeerID!, withContext context: NSData!, invitationHandler: ((Bool, MCSession!) -> Void)!) {
+        self.invitationHandler = invitationHandler
+        
+        delegate?.invitationWasReceived(peerID.displayName)
+    }
+    
+    func advertiser(advertiser: MCNearbyServiceAdvertiser, didNotStartAdvertisingPeer error: NSError) {
+        print(error.localizedDescription)
+    }
+    
+    func session(session: MCSession, peer peerID: MCPeerID, didChangeState state: MCSessionState) {
+        switch state{
+        case MCSessionState.Connected:
+            print("Connected to session: \(session)")
+            delegate?.connectedWithPeer(peerID)
+            
+        case MCSessionState.Connecting:
+            print("Connecting to session: \(session)")
+            
+        default:
+            print("Did not connect to session: \(session)")
+        }
     }
     
     //Called by the MPC when a nearby peer is found
