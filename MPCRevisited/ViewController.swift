@@ -58,7 +58,7 @@ class ViewController: UIViewController, UITableViewDelegate, UITableViewDataSour
         }
         
         let declineAction = UIAlertAction(title: "Cancel", style: UIAlertActionStyle.Cancel) { (alertAction) -> Void in
-            self.appDelegate.mpcManager.invitationHandler(false, nil)
+            self.appDelegate.mpcManager.invitationHandler(false, self.appDelegate.mpcManager.session)
         }
         
         alert.addAction(acceptAction)

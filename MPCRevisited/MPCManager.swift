@@ -21,15 +21,21 @@ protocol MPCManagerDelegate {
 
 class MPCManager: NSObject, MCSessionDelegate, MCNearbyServiceBrowserDelegate, MCNearbyServiceAdvertiserDelegate
 {
+    var delegate: MPCManagerDelegate?
+    
     var session: MCSession!
+    
     var peer: MCPeerID!
+    
     var browser: MCNearbyServiceBrowser!
+    
     var advertiser: MCNearbyServiceAdvertiser!
     
     var foundPeers = [MCPeerID]()
-    var invitationHandler: ((Bool, MCSession!)->Void)!
     
-    var delegate: MPCManagerDelegate?
+    var invitationHandler: ((Bool, MCSession)->Void)!
+    
+    
     
     override init() {
         super.init()
@@ -46,23 +52,42 @@ class MPCManager: NSObject, MCSessionDelegate, MCNearbyServiceBrowserDelegate, M
         advertiser.delegate = self
     }
     
-    func sendData(dictionaryWithData dictionary: Dictionary<String, String>, toPeer targetPeer: MCPeerID) -> Bool {
-        let dataToSend = NSKeyedArchiver.archivedDataWithRootObject(dictionary)
-        let peersArray = NSArray(object: targetPeer)
-        var error: NSError?
-        
-        try
-            session.sendData(dataToSend, toPeers: peersArray as! [MCPeerID], withMode: MCSessionSendDataMode.Reliable)
-        
-        if !session.sendData(dataToSend, toPeers: peersArray as! [MCPeerID], withMode: MCSessionSendDataMode.Reliable) {
-            print(error?.localizedDescription)
-            return false
+    //Called by the MPC when a nearby peer is no longer available
+    /*
+    A chat can also be ended when the other peer just terminates the application, or for some reason the connection between the two devices is lost.
+    That’s a case we must take care of also. What must be done is to post a new notification from the browser(browser:lostPeer:) delegate method in
+    the MPCManager.swift file. Then, we must observe for it and handle it, exactly as we did in the previous notification.
+    */
+    func browser(browser: MCNearbyServiceBrowser, lostPeer peerID: MCPeerID) {
+        for(index, aPeer) in foundPeers.enumerate()
+        {
+            if aPeer == peerID
+            {
+                foundPeers.removeAtIndex(index)
+                break
+            }
         }
         
-        return true
+        delegate?.lostPeer()
     }
     
-    func advertiser(advertiser: MCNearbyServiceAdvertiser!, didReceiveInvitationFromPeer peerID: MCPeerID!, withContext context: NSData!, invitationHandler: ((Bool, MCSession!) -> Void)!) {
+    //Called by the MPC when a nearby peer is found
+    func browser(browser: MCNearbyServiceBrowser, foundPeer peerID: MCPeerID, withDiscoveryInfo info: [String : String]?) {
+        foundPeers.append(peerID)
+        
+        delegate?.foundPeer()
+    }
+    
+    //Called by the MPC when an error occurs
+    func browser(browser: MCNearbyServiceBrowser, didNotStartBrowsingForPeers error: NSError) {
+        print(error.localizedDescription)
+    }
+    
+    // MARK: MCNearbyServiceAdvertiserDelegate method implementation
+
+    
+    func advertiser(advertiser: MCNearbyServiceAdvertiser, didReceiveInvitationFromPeer peerID: MCPeerID, withContext context: NSData?, invitationHandler: (Bool, MCSession) -> Void) {
+        
         self.invitationHandler = invitationHandler
         
         delegate?.invitationWasReceived(peerID.displayName)
@@ -71,6 +96,8 @@ class MPCManager: NSObject, MCSessionDelegate, MCNearbyServiceBrowserDelegate, M
     func advertiser(advertiser: MCNearbyServiceAdvertiser, didNotStartAdvertisingPeer error: NSError) {
         print(error.localizedDescription)
     }
+    
+    // MARK: MCSessionDelegate method implementation
     
     func session(session: MCSession, peer peerID: MCPeerID, didChangeState state: MCSessionState) {
         switch state{
@@ -86,29 +113,32 @@ class MPCManager: NSObject, MCSessionDelegate, MCNearbyServiceBrowserDelegate, M
         }
     }
     
-    //Called by the MPC when a nearby peer is found
-    func browser(browser: MCNearbyServiceBrowser, foundPeer peerID: MCPeerID, withDiscoveryInfo info: [String : String]?) {
-        foundPeers.append(peerID)
-        
-        delegate?.foundPeer()
+    
+    func session(session: MCSession, didReceiveData data: NSData, fromPeer peerID: MCPeerID) {
+        let dictionary: [String: AnyObject] = ["data": data, "fromPeer": peerID]
+        NSNotificationCenter.defaultCenter().postNotificationName("receivedMPCDataNotification", object: dictionary)
     }
     
-    //Called by the MPC when a nearby peer is no longer available
-    func browser(browser: MCNearbyServiceBrowser, lostPeer peerID: MCPeerID) {
-        for(index, aPeer) in foundPeers.enumerate()
-        {
-            if aPeer == peerID
-            {
-                foundPeers.removeAtIndex(index)
-                break
-            }
+    
+    func session(session: MCSession, didStartReceivingResourceWithName resourceName: String, fromPeer peerID: MCPeerID, withProgress progress: NSProgress) { }
+    
+    func session(session: MCSession, didFinishReceivingResourceWithName resourceName: String, fromPeer peerID: MCPeerID, atURL localURL: NSURL, withError error: NSError?) { }
+    
+    func session(session: MCSession, didReceiveStream stream: NSInputStream, withName streamName: String, fromPeer peerID: MCPeerID) { }
+    
+    // MARK: Custom method implementation
+    
+    func sendData(dictionaryWithData dictionary: Dictionary<String, String>, toPeer targetPeer: MCPeerID) -> Bool {
+        let dataToSend = NSKeyedArchiver.archivedDataWithRootObject(dictionary)
+        let peersArray = NSArray(object: targetPeer)
+        
+        do {
+            try session.sendData(dataToSend, toPeers: peersArray as! [MCPeerID], withMode: MCSessionSendDataMode.Reliable)
+        } catch let error as NSError{
+            print(error.localizedDescription)
+            return false
         }
         
-        delegate?.lostPeer()
-    }
-    
-    //Called by the MPC when an error occurs
-    func browser(browser: MCNearbyServiceBrowser, didNotStartBrowsingForPeers error: NSError) {
-        print(error.localizedDescription)
+        return true
     }
 }
